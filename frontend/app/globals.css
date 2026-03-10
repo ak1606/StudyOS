@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CSS custom properties (DaisyUI-compatible) ─────────────────────── */
+:root {
+  --font-inter: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/* ── Base layer resets ────────────────────────────────────────────────── */
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-base-100 text-base-content;
+  }
+
+  /* Remove default focus ring and replace with DaisyUI-friendly one */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-base-100;
+  }
+}
+
+/* ── Component-level utilities ────────────────────────────────────────── */
+@layer components {
+  /* Page container for dashboard layouts */
+  .page-container {
+    @apply mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8;
+  }
+
+  /* Card with consistent shadow */
+  .card-elevated {
+    @apply card bg-base-100 shadow-md;
+  }
+
+  /* Skeleton placeholder for loading states */
+  .skeleton-line {
+    @apply h-4 w-full animate-pulse rounded bg-base-300;
+  }
+}
+
+/* ── Utility helpers ──────────────────────────────────────────────────── */
+@layer utilities {
+  /* Hide scrollbar but keep scrollability */
+  .scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Truncate to N lines (use with style="--line-clamp: N") */
+  .line-clamp-var {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--line-clamp, 3);
+    overflow: hidden;
+  }
+}
