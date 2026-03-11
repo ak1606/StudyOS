@@ -10,6 +10,7 @@ const teacherLinks = [
   { href: "/dashboard/teacher/quizzes", label: "Quizzes", icon: "📝" },
   { href: "/dashboard/teacher/analytics", label: "Analytics", icon: "📊" },
   { href: "/dashboard/teacher/announcements", label: "Announcements", icon: "📢" },
+  { href: "/dashboard/admin/db", label: "DB Browser", icon: "🗄️" },
 ];
 
 const studentLinks = [

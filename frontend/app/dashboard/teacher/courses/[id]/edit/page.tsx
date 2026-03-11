@@ -39,6 +39,13 @@ const moduleSchema = z.object({
 });
 type ModuleForm = z.infer<typeof moduleSchema>;
 
+const youtubeSchema = z.object({
+  title: z.string().min(1, "Required").max(200),
+  youtube_url: z.string().url("Must be a valid URL"),
+  description: z.string().optional(),
+});
+type YouTubeForm = z.infer<typeof youtubeSchema>;
+
 const materialSchema = z.object({
   title: z.string().min(1, "Required").max(200),
   type: z.enum(["pdf", "youtube", "link", "file"]),
@@ -113,6 +120,7 @@ export default function CourseEditPage() {
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
   const [showModuleDialog, setShowModuleDialog] = useState(false);
   const [showMaterialDialog, setShowMaterialDialog] = useState(false);
+  const [lectureTab, setLectureTab] = useState<"upload" | "youtube">("upload");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -161,6 +169,25 @@ export default function CourseEditPage() {
     onError: () => toast.error("Failed to add material"),
   });
 
+  // ── Mutation: add YouTube lecture ────────────────────────────────
+  const { mutate: addYoutubeLecture, isPending: addingYoutube } = useMutation({
+    mutationFn: (data: YouTubeForm) =>
+      api
+        .post("/api/lectures/youtube", {
+          module_id: activeModuleId,
+          title: data.title,
+          description: data.description ?? "",
+          youtube_url: data.youtube_url,
+        })
+        .then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["course", courseId] });
+      toast.success("YouTube lecture added — transcript being fetched!");
+      resetYouTube();
+    },
+    onError: () => toast.error("Failed to add YouTube lecture"),
+  });
+
   // ── Forms ──────────────────────────────────────────────────────────
   const {
     register: regModule,
@@ -178,6 +205,13 @@ export default function CourseEditPage() {
     resolver: zodResolver(materialSchema),
     defaultValues: { type: "youtube" },
   });
+
+  const {
+    register: regYouTube,
+    handleSubmit: submitYouTube,
+    reset: resetYouTube,
+    formState: { errors: youtubeErrors },
+  } = useForm<YouTubeForm>({ resolver: zodResolver(youtubeSchema) });
 
   // ── Upload video ───────────────────────────────────────────────────
   const handleVideoUpload = useCallback(
@@ -336,64 +370,154 @@ export default function CourseEditPage() {
                   <h3 className="font-semibold">Lectures</h3>
                 </div>
 
-                {/* Upload zone */}
-                <div
-                  className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors mb-4 ${
-                    uploading
-                      ? "border-info bg-info/5"
-                      : "border-base-300 hover:border-primary"
-                  }`}
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const file = e.dataTransfer.files[0];
-                    if (file) handleVideoUpload(file);
-                  }}
-                >
-                  {uploading ? (
-                    <div className="flex items-center justify-center gap-2">
-                      <span className="loading loading-spinner" />
-                      <span>Uploading…</span>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-lg">📹 Drop a video here or click to upload</p>
-                      <p className="text-xs text-base-content/50 mt-1">
-                        MP4, WebM, MOV — max 500 MB
-                      </p>
-                    </>
-                  )}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="video/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
+                {/* Tabs: Upload vs YouTube */}
+                <div className="tabs tabs-boxed mb-4">
+                  <button
+                    className={`tab ${lectureTab === "upload" ? "tab-active" : ""}`}
+                    onClick={() => setLectureTab("upload")}
+                  >
+                    📹 Upload Video
+                  </button>
+                  <button
+                    className={`tab ${lectureTab === "youtube" ? "tab-active" : ""}`}
+                    onClick={() => setLectureTab("youtube")}
+                  >
+                    ▶️ YouTube URL
+                  </button>
+                </div>
+
+                {lectureTab === "upload" ? (
+                  <div
+                    className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors mb-4 ${
+                      uploading
+                        ? "border-info bg-info/5"
+                        : "border-base-300 hover:border-primary"
+                    }`}
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const file = e.dataTransfer.files[0];
                       if (file) handleVideoUpload(file);
                     }}
-                  />
-                </div>
+                  >
+                    {uploading ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="loading loading-spinner" />
+                        <span>Uploading…</span>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-lg">📹 Drop a video here or click to upload</p>
+                        <p className="text-xs text-base-content/50 mt-1">
+                          MP4, WebM, MOV — max 500 MB
+                        </p>
+                      </>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleVideoUpload(file);
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={submitYouTube((d) => addYoutubeLecture(d))}
+                    className="space-y-3 mb-4 bg-base-200 rounded-lg p-4"
+                  >
+                    <div className="form-control">
+                      <label className="label py-1">
+                        <span className="label-text">Lecture Title</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={`input input-bordered input-sm w-full ${
+                          youtubeErrors.title ? "input-error" : ""
+                        }`}
+                        placeholder="e.g. Introduction to Variables"
+                        {...regYouTube("title")}
+                      />
+                      {youtubeErrors.title && (
+                        <span className="text-error text-xs mt-1">
+                          {youtubeErrors.title.message}
+                        </span>
+                      )}
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-1">
+                        <span className="label-text">YouTube URL</span>
+                      </label>
+                      <input
+                        type="url"
+                        className={`input input-bordered input-sm w-full ${
+                          youtubeErrors.youtube_url ? "input-error" : ""
+                        }`}
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        {...regYouTube("youtube_url")}
+                      />
+                      {youtubeErrors.youtube_url && (
+                        <span className="text-error text-xs mt-1">
+                          {youtubeErrors.youtube_url.message}
+                        </span>
+                      )}
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-1">
+                        <span className="label-text">Description (optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        className="input input-bordered input-sm w-full"
+                        placeholder="Brief description…"
+                        {...regYouTube("description")}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className={`btn btn-primary btn-sm w-full ${
+                        addingYoutube ? "loading" : ""
+                      }`}
+                      disabled={addingYoutube || !activeModuleId}
+                    >
+                      {addingYoutube ? "Adding…" : "▶️ Add YouTube Lecture"}
+                    </button>
+                  </form>
+                )}
 
                 {/* Lecture list */}
                 {activeModule.lectures.length === 0 ? (
                   <p className="text-sm text-base-content/50">
-                    No lectures yet. Upload a video above.
+                    No lectures yet.
                   </p>
                 ) : (
                   <div className="space-y-2">
                     {activeModule.lectures.map((lec: Lecture) => (
-                      <div
+                      <a
                         key={lec.id}
-                        className="flex items-center gap-3 rounded-lg border border-base-300 p-3"
+                        href={`/dashboard/lecture/${lec.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-3 rounded-lg border border-base-300 p-3 hover:border-primary transition-colors"
                       >
-                        <span className="text-lg">🎬</span>
+                        <span className="text-lg">
+                          {(lec.video_url ?? "").includes("youtube") ||
+                          (lec.video_url ?? "").includes("youtu.be")
+                            ? "▶️"
+                            : "🎬"}
+                        </span>
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{lec.title}</p>
+                          <p className="text-xs text-base-content/50 truncate">
+                            {lec.video_url}
+                          </p>
                         </div>
                         <StatusBadge status={lec.status} />
-                      </div>
+                      </a>
                     ))}
                   </div>
                 )}

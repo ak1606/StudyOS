@@ -121,6 +121,18 @@ async def delete_course(db: AsyncSession, course_id: UUID, teacher: User) -> Non
 
 # ── Enrollment ────────────────────────────────────────────────────────
 
+async def enroll_by_code(
+    db: AsyncSession, enrollment_code: str, student: User
+) -> Enrollment:
+    """Look up a course by enrollment_code, then enroll the student."""
+    stmt = select(Course).where(Course.enrollment_code == enrollment_code)
+    result = await db.execute(stmt)
+    course = result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Invalid enrollment code")
+    return await enroll_student(db, course.id, enrollment_code, student)
+
+
 async def enroll_student(
     db: AsyncSession, course_id: UUID, enrollment_code: str, student: User
 ) -> Enrollment:

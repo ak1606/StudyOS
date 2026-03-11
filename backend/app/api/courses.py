@@ -6,6 +6,7 @@ GET    /api/courses
 GET    /api/courses/{id}
 PUT    /api/courses/{id}
 DELETE /api/courses/{id}
+POST   /api/courses/enroll
 POST   /api/courses/{id}/enroll
 POST   /api/courses/{id}/modules
 PUT    /api/modules/{id}
@@ -95,6 +96,21 @@ async def delete_course(
 
 
 # ── Enrollment ────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/enroll",
+    response_model=EnrollmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def enroll_by_code(
+    body: EnrollRequest,
+    db: AsyncSession = Depends(get_db),
+    student: User = Depends(require_student),
+) -> EnrollmentResponse:
+    """Enroll using just an enrollment code — course is looked up internally (students only)."""
+    enrollment = await course_service.enroll_by_code(db, body.enrollment_code, student)
+    return EnrollmentResponse.model_validate(enrollment)
 
 
 @router.post(

@@ -95,18 +95,20 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
 # ── Routers ───────────────────────────────────────────────────────────
 
-from app.api import auth, courses, lectures, materials, upload, search, chat, quizzes, analytics, notifications
+from app.api import auth, courses, lectures, materials, upload, search, chat, quizzes, analytics, notifications, youtube_lectures, admin
 
-app.include_router(auth.router,          prefix="/api/auth",          tags=["Auth"])
-app.include_router(courses.router,       prefix="/api/courses",       tags=["Courses"])
-app.include_router(lectures.router,      prefix="/api/lectures",      tags=["Lectures"])
-app.include_router(materials.router,     prefix="/api/materials",     tags=["Materials"])
-app.include_router(upload.router,        prefix="/api/upload",        tags=["Upload"])
-app.include_router(search.router,        prefix="/api",               tags=["Search"])
-app.include_router(chat.router,          prefix="/api",               tags=["Chat"])
-app.include_router(quizzes.router,       prefix="/api/quizzes",       tags=["Quizzes"])
-app.include_router(analytics.router,     prefix="/api/analytics",     tags=["Analytics"])
-app.include_router(notifications.router, prefix="/api",               tags=["Notifications"])
+app.include_router(auth.router,              prefix="/api/auth",          tags=["Auth"])
+app.include_router(courses.router,           prefix="/api/courses",       tags=["Courses"])
+app.include_router(lectures.router,          prefix="/api/lectures",      tags=["Lectures"])
+app.include_router(youtube_lectures.router,  prefix="/api/lectures",      tags=["YouTube Lectures"])
+app.include_router(materials.router,         prefix="/api/materials",     tags=["Materials"])
+app.include_router(upload.router,            prefix="/api/upload",        tags=["Upload"])
+app.include_router(search.router,            prefix="/api",               tags=["Search"])
+app.include_router(chat.router,              prefix="/api",               tags=["Chat"])
+app.include_router(quizzes.router,           prefix="/api/quizzes",       tags=["Quizzes"])
+app.include_router(analytics.router,         prefix="/api/analytics",     tags=["Analytics"])
+app.include_router(notifications.router,     prefix="/api",               tags=["Notifications"])
+app.include_router(admin.router,             prefix="/api/admin/db",      tags=["Admin DB"])
 
 
 # ── Health check ──────────────────────────────────────────────────────
