@@ -17,9 +17,13 @@ from app.ai import ollama_client
 logger = logging.getLogger(__name__)
 
 
-async def embed_query(query: str) -> list[float]:
-    """Embed a user query using nomic-embed-text (768-dim)."""
-    return await ollama_client.embed(query)
+async def embed_query(query: str) -> list[float] | None:
+    """Embed a user query. Returns None if embedding model is unavailable."""
+    try:
+        return await ollama_client.embed(query)
+    except Exception as exc:
+        logger.warning("Embedding unavailable, skipping semantic search: %s", exc)
+        return None
 
 
 async def semantic_search(
@@ -30,11 +34,13 @@ async def semantic_search(
 ) -> list[dict[str, Any]]:
     """
     Run a cosine-similarity search against content_chunks for a course.
-
-    Returns the top_k most relevant chunks with their scores.
+    Returns empty list (graceful degradation) if embedding model is unavailable.
     """
     # 1. Embed the query text
     query_vec = await embed_query(query)
+    if query_vec is None:
+        logger.warning("Skipping semantic search — embedding model unavailable")
+        return []
     vec_literal = "[" + ",".join(str(v) for v in query_vec) + "]"
 
     # 2. Run the vector similarity query

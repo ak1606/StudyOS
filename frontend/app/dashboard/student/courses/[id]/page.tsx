@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
+import ReactMarkdown from "react-markdown";
 import api from "@/lib/api";
 import type { CourseDetail, Lecture } from "@/types";
 import CourseSearch from "@/components/search/CourseSearch";
@@ -12,11 +13,106 @@ import TutorChat from "@/components/chat/TutorChat";
 // Lazy-load ReactPlayer (SSR-incompatible)
 const ReactPlayer = dynamic(() => import("react-player/lazy"), { ssr: false });
 
+function isYouTubeUrl(url: string) {
+  return url.includes("youtube.com") || url.includes("youtu.be");
+}
+
+function getYouTubeEmbedUrl(url: string): string | null {
+  const patterns = [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /embed\/([A-Za-z0-9_-]{11})/,
+    /shorts\/([A-Za-z0-9_-]{11})/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return `https://www.youtube-nocookie.com/embed/${m[1]}?rel=0&modestbranding=1`;
+  }
+  return null;
+}
+
 export default function StudentCourseView() {
   const params = useParams();
   const courseId = params.id as string;
+  const router = useRouter();
 
   const [activeLectureId, setActiveLectureId] = useState<string | null>(null);
+  // For youtube materials embedded inline (they have no lecture ID)
+  const [activeEmbedUrl, setActiveEmbedUrl] = useState<string | null>(null);
+  const [activeEmbedTitle, setActiveEmbedTitle] = useState<string>("");
+  const [activeRawYouTubeUrl, setActiveRawYouTubeUrl] = useState<string | null>(null);
+
+  // ── Inline YouTube AI state ──────────────────────────────────────
+  const [embedTab, setEmbedTab] = useState<"summary" | "chat">("summary");
+  const [embedSummary, setEmbedSummary] = useState<string | null>(null);
+  const [embedSummaryLoading, setEmbedSummaryLoading] = useState(false);
+  const [embedChatMessages, setEmbedChatMessages] = useState<{role:"user"|"assistant"; content:string}[]>([]);
+  const [embedChatInput, setEmbedChatInput] = useState("");
+  const [embedChatStreaming, setEmbedChatStreaming] = useState(false);
+  const embedChatBottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    embedChatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [embedChatMessages]);
+
+  const loadEmbedSummary = async (youtubeUrl: string) => {
+    setEmbedSummary(null);
+    setEmbedSummaryLoading(true);
+    try {
+      const res = await api.post("/api/lectures/youtube/by-url/summary", { youtube_url: youtubeUrl });
+      setEmbedSummary(res.data.summary);
+    } catch {
+      setEmbedSummary("⚠️ Could not generate summary. Is Ollama running?");
+    } finally {
+      setEmbedSummaryLoading(false);
+    }
+  };
+
+  const sendEmbedChat = async () => {
+    const q = embedChatInput.trim();
+    if (!q || embedChatStreaming || !activeRawYouTubeUrl) return;
+    setEmbedChatInput("");
+    const history = embedChatMessages.map(m => ({ role: m.role, content: m.content }));
+    setEmbedChatMessages(prev => [...prev, { role: "user", content: q }, { role: "assistant", content: "" }]);
+    setEmbedChatStreaming(true);
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/lectures/youtube/by-url/chat`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("access_token") ?? ""}`,
+          },
+          body: JSON.stringify({ youtube_url: activeRawYouTubeUrl, question: q, history }),
+        }
+      );
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n"); buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          try {
+            const json = JSON.parse(line.slice(5).trim());
+            if (json.token) setEmbedChatMessages(prev => {
+              const copy = [...prev];
+              copy[copy.length - 1] = { ...copy[copy.length - 1], content: copy[copy.length - 1].content + json.token };
+              return copy;
+            });
+          } catch {}
+        }
+      }
+    } catch {
+      setEmbedChatMessages(prev => { const c=[...prev]; c[c.length-1]={...c[c.length-1],content:"⚠️ Error. Is Ollama running?"}; return c; });
+    } finally {
+      setEmbedChatStreaming(false);
+    }
+  };
 
   const { data: course, isLoading } = useQuery<CourseDetail>({
     queryKey: ["course", courseId],
@@ -58,9 +154,113 @@ export default function StudentCourseView() {
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
-        {/* ── Left: Video + Summary ───────────────────────────────── */}
+        {/* ── Left: Video + AI Panel ───────────────────────────────── */}
         <div className="flex-1 min-w-0">
-          {lectureDetail?.signed_video_url ? (
+          {activeEmbedUrl ? (
+            <>
+              {/* Inline YouTube embed for materials */}
+              <div className="mb-4">
+                <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+                  <iframe
+                    className="absolute inset-0 w-full h-full rounded-lg"
+                    src={activeEmbedUrl}
+                    title={activeEmbedTitle}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
+                <p className="mt-2 font-medium">{activeEmbedTitle}</p>
+              </div>
+
+              {/* AI Panel for inline YouTube materials */}
+              <div className="card bg-base-200">
+                <div className="card-body p-4">
+                  <div className="tabs tabs-boxed mb-4">
+                    <button
+                      className={`tab flex-1 ${embedTab === "summary" ? "tab-active" : ""}`}
+                      onClick={() => setEmbedTab("summary")}
+                    >
+                      ✨ AI Summary
+                    </button>
+                    <button
+                      className={`tab flex-1 ${embedTab === "chat" ? "tab-active" : ""}`}
+                      onClick={() => setEmbedTab("chat")}
+                    >
+                      💬 Ask AI
+                    </button>
+                  </div>
+
+                  {embedTab === "summary" && (
+                    <div>
+                      {embedSummaryLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-base-content/60 py-2">
+                          <span className="loading loading-spinner loading-sm" />
+                          Generating summary…
+                        </div>
+                      ) : embedSummary ? (
+                        <div className="prose prose-sm max-w-none text-base-content">
+                          <ReactMarkdown>{embedSummary}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-base-content/50">No summary yet.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {embedTab === "chat" && (
+                    <div className="flex flex-col gap-3">
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {embedChatMessages.length === 0 && (
+                          <p className="text-sm text-base-content/50 text-center py-4">
+                            Ask anything about this video
+                          </p>
+                        )}
+                        {embedChatMessages.map((msg, i) => (
+                          <div key={i} className={`chat ${msg.role === "user" ? "chat-end" : "chat-start"}`}>
+                            <div className={`chat-bubble text-sm ${
+                              msg.role === "user"
+                                ? "chat-bubble-primary"
+                                : "bg-base-300 text-base-content"
+                            }`}>
+                              {msg.role === "assistant" ? (
+                                <div className="prose prose-sm max-w-none">
+                                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                  {embedChatStreaming && i === embedChatMessages.length - 1 && (
+                                    <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5" />
+                                  )}
+                                </div>
+                              ) : (
+                                msg.content
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={embedChatBottomRef} />
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          className="input input-bordered input-sm flex-1"
+                          placeholder="Ask about this video…"
+                          value={embedChatInput}
+                          onChange={e => setEmbedChatInput(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && sendEmbedChat()}
+                          disabled={embedChatStreaming}
+                        />
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={sendEmbedChat}
+                          disabled={!embedChatInput.trim() || embedChatStreaming}
+                        >
+                          {embedChatStreaming ? <span className="loading loading-spinner loading-xs" /> : "Ask"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : lectureDetail?.signed_video_url ? (
             <div className="aspect-video rounded-lg overflow-hidden bg-black mb-4">
               <ReactPlayer
                 url={lectureDetail.signed_video_url}
@@ -135,11 +335,12 @@ export default function StudentCourseView() {
                         ? "bg-primary/10 text-primary"
                         : "hover:bg-base-300"
                     }`}
-                    onClick={() => setActiveLectureId(lec.id)}
+                    onClick={() => {
+                        // Always open the viewer page — it handles both YouTube and regular videos
+                        router.push(`/dashboard/lecture/${lec.id}`);
+                      }}
                   >
-                    <span className="text-sm">
-                      {lec.status === "ready" ? "▶️" : "⏳"}
-                    </span>
+                    <span className="text-sm">▶️</span>
                     <span className="text-sm truncate flex-1">
                       {lec.title}
                     </span>
@@ -152,29 +353,53 @@ export default function StudentCourseView() {
                 ))}
 
                 {/* Materials */}
-                {mod.materials.map((mat) => (
-                  <a
-                    key={mat.id}
-                    href={mat.external_url || mat.file_url || "#"}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 rounded-lg p-2 hover:bg-base-300 transition-colors"
-                  >
-                    <span className="text-sm">
-                      {mat.type === "pdf"
-                        ? "📄"
-                        : mat.type === "youtube"
-                        ? "▶️"
-                        : "🔗"}
-                    </span>
-                    <span className="text-sm truncate flex-1">
-                      {mat.title}
-                    </span>
-                    <span className="badge badge-xs badge-ghost">
-                      {mat.type}
-                    </span>
-                  </a>
-                ))}
+                {mod.materials.map((mat) => {
+                  const ytUrl = mat.external_url ?? "";
+                  if (mat.type === "youtube" && isYouTubeUrl(ytUrl)) {
+                    return (
+                      <button
+                        key={mat.id}
+                        className={`w-full text-left flex items-center gap-2 rounded-lg p-2 transition-colors ${
+                          activeEmbedUrl === getYouTubeEmbedUrl(ytUrl)
+                            ? "bg-primary/10 text-primary"
+                            : "hover:bg-base-300"
+                        }`}
+                        onClick={() => {
+                          const embedUrl = getYouTubeEmbedUrl(ytUrl);
+                          if (embedUrl) {
+                            setActiveLectureId(null);
+                            setActiveEmbedUrl(embedUrl);
+                            setActiveEmbedTitle(mat.title);
+                            setActiveRawYouTubeUrl(ytUrl);
+                            setEmbedSummary(null);
+                            setEmbedChatMessages([]);
+                            setEmbedTab("summary");
+                            loadEmbedSummary(ytUrl);
+                          }
+                        }}
+                      >
+                        <span className="text-sm">▶️</span>
+                        <span className="text-sm truncate flex-1">{mat.title}</span>
+                        <span className="badge badge-xs badge-ghost">youtube</span>
+                      </button>
+                    );
+                  }
+                  return (
+                    <a
+                      key={mat.id}
+                      href={mat.external_url || mat.file_url || "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 rounded-lg p-2 hover:bg-base-300 transition-colors"
+                    >
+                      <span className="text-sm">
+                        {mat.type === "pdf" ? "📄" : "🔗"}
+                      </span>
+                      <span className="text-sm truncate flex-1">{mat.title}</span>
+                      <span className="badge badge-xs badge-ghost">{mat.type}</span>
+                    </a>
+                  );
+                })}
 
                 {mod.lectures.length === 0 && mod.materials.length === 0 && (
                   <p className="text-xs text-base-content/50 py-2">

@@ -28,8 +28,9 @@ export function useStream({ courseId, onDone }: UseStreamOptions) {
 
       try {
         const token = localStorage.getItem("access_token") ?? "";
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/courses/${courseId}/chat`,
+          `${baseUrl}/api/courses/${courseId}/chat`,
           {
             method: "POST",
             headers: {

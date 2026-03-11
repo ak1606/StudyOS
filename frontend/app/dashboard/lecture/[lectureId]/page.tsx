@@ -186,7 +186,7 @@ function ChatPanel({ lectureId }: { lectureId: string }) {
               className={`chat-bubble text-sm ${
                 msg.role === "user"
                   ? "chat-bubble-primary"
-                  : "chat-bubble-base-300 bg-base-200"
+                  : "bg-base-300 text-base-content"
               }`}
             >
               {msg.role === "assistant" ? (

@@ -42,18 +42,23 @@ def fetch_transcript(video_id: str, max_chars: int = 12_000) -> str:
     Raises ValueError if no transcript is found.
     """
     try:
-        from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
+        from youtube_transcript_api import YouTubeTranscriptApi
+        from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled
 
+        api = YouTubeTranscriptApi()
+
+        # Try fetching English transcript first; fall back to any available language
         try:
-            entries = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
-        except NoTranscriptFound:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            transcript = transcript_list.find_generated_transcript(
-                [t.language_code for t in transcript_list]
-            )
-            entries = transcript.fetch()
+            fetched = api.fetch(video_id, languages=["en"])
+        except (NoTranscriptFound, TranscriptsDisabled):
+            transcript_list = api.list(video_id)
+            # find first available transcript and fetch it
+            transcript = next(iter(transcript_list))
+            fetched = transcript.fetch()
 
-        text = " ".join(e["text"] for e in entries)
+        text = " ".join(
+            (e.text if hasattr(e, "text") else e["text"]) for e in fetched
+        )
         # Trim to max_chars to avoid overwhelming the LLM context
         return text[:max_chars]
     except Exception as exc:

@@ -126,8 +126,9 @@ async def answer_question(
         {
             "role": "user",
             "content": (
-                f"Course materials:\n{context_text}\n\n"
-                f"Student question: {question}"
+                f"Course materials:\n{context_text}\n\nStudent question: {question}"
+                if context_text
+                else question
             ),
         },
     ]

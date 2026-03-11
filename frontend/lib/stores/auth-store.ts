@@ -82,6 +82,8 @@ export const useAuthStore = create<AuthState>()(
         localStorage.removeItem("access_token");
         set({ user: null, accessToken: null, refreshToken: null });
         if (typeof window !== "undefined") {
+          // Clear the session cookie so middleware redirects correctly
+          document.cookie = "lms-session=; path=/; max-age=0; SameSite=Lax";
           window.location.href = "/login";
         }
       },

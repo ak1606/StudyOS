@@ -268,3 +268,94 @@ async def youtube_chat(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ── POST /api/lectures/youtube/by-url/summary ──────────────────────────
+# Summary/chat for YouTube materials that have no lecture ID in the DB
+
+class YouTubeUrlRequest(BaseModel):
+    youtube_url: str
+
+
+class YouTubeUrlChatRequest(BaseModel):
+    youtube_url: str
+    question: str
+    history: list[dict] = []
+
+
+@router.post("/youtube/by-url/summary")
+async def summary_by_url(
+    body: YouTubeUrlRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Generate an AI summary for any YouTube URL directly (no lecture record needed).
+    Used for YouTube materials that aren’t stored as Lecture rows.
+    """
+    import asyncio
+
+    if not is_youtube_url(body.youtube_url):
+        raise HTTPException(status_code=400, detail="Not a valid YouTube URL")
+
+    video_id = extract_video_id(body.youtube_url)
+    if not video_id:
+        raise HTTPException(status_code=400, detail="Cannot extract video ID")
+
+    try:
+        transcript = await asyncio.get_event_loop().run_in_executor(
+            None, fetch_transcript, video_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    summary = await summarise_video(transcript)
+    return {"summary": summary, "transcript": transcript}
+
+
+@router.post("/youtube/by-url/chat")
+async def chat_by_url(
+    body: YouTubeUrlChatRequest,
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """
+    Stream an AI answer about any YouTube URL directly (no lecture record needed).
+    SSE format: `data: {\"token\": \"...\"}` … `data: {\"done\": true}`.
+    """
+    import asyncio
+
+    if not is_youtube_url(body.youtube_url):
+        raise HTTPException(status_code=400, detail="Not a valid YouTube URL")
+
+    video_id = extract_video_id(body.youtube_url)
+    if not video_id:
+        raise HTTPException(status_code=400, detail="Cannot extract video ID")
+
+    try:
+        transcript = await asyncio.get_event_loop().run_in_executor(
+            None, fetch_transcript, video_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    async def event_stream():
+        try:
+            async for token in answer_youtube_question(
+                question=body.question,
+                transcript=transcript,
+                history=body.history,
+            ):
+                yield f"data: {json.dumps({'token': token})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as exc:
+            logger.error("YouTube URL chat stream error: %s", exc)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

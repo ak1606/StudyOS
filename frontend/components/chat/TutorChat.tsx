@@ -8,6 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import ReactMarkdown from "react-markdown";
 import { useStream } from "@/hooks/useStream";
 import api from "@/lib/api";
 import type { Source } from "@/types";
@@ -300,7 +301,9 @@ export default function TutorChat({ courseId, onNavigateToLecture }: Props) {
               )}
 
               {msg.content && (
-                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                <div className="text-sm prose prose-sm max-w-none prose-p:my-0.5 prose-li:my-0">
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
               )}
 
               {/* Source chips */}
